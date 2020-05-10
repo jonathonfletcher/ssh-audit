@@ -17,6 +17,7 @@
 - output security information (related issues, assigned CVE list, etc);
 - analyze SSH version compatibility based on algorithm information;
 - historical information from OpenSSH, Dropbear SSH and libssh;
+- runs on Linux and Windows;
 - no dependencies
 
 ## Usage
@@ -55,6 +56,14 @@ Below is a screen shot of the client-auditing output when an unhardened OpenSSH 
 Guides to harden server & client configuration can be found here: [https://www.ssh-audit.com/hardening_guides.html](https://www.ssh-audit.com/hardening_guides.html)
 
 ## ChangeLog
+### v2.2.0 (2020-03-11)
+ - Marked host key type `ssh-rsa` as weak due to [practical SHA-1 collisions](https://eprint.iacr.org/2020/014.pdf).
+ - Added Windows builds.
+ - Added 10 new host key types: `ecdsa-sha2-1.3.132.0.10`, `x509v3-sign-dss`, `x509v3-sign-rsa`, `x509v3-sign-rsa-sha256@ssh.com`, `x509v3-ssh-dss`, `x509v3-ssh-rsa`, `sk-ecdsa-sha2-nistp256-cert-v01@openssh.com`, `sk-ecdsa-sha2-nistp256@openssh.com`, `sk-ssh-ed25519-cert-v01@openssh.com`, and `sk-ssh-ed25519@openssh.com`.
+ - Added 18 new key exchanges: `diffie-hellman-group14-sha256@ssh.com`, `diffie-hellman-group15-sha256@ssh.com`, `diffie-hellman-group15-sha384@ssh.com`, `diffie-hellman-group16-sha384@ssh.com`, `diffie-hellman-group16-sha512@ssh.com`, `diffie-hellman-group18-sha512@ssh.com`, `ecdh-sha2-curve25519`, `ecdh-sha2-nistb233`, `ecdh-sha2-nistb409`, `ecdh-sha2-nistk163`, `ecdh-sha2-nistk233`, `ecdh-sha2-nistk283`, `ecdh-sha2-nistk409`, `ecdh-sha2-nistp192`, `ecdh-sha2-nistp224`, `ecdh-sha2-nistt571`, `gss-gex-sha1-`, and `gss-group1-sha1-`.
+ - Added 9 new ciphers: `camellia128-cbc`, `camellia128-ctr`, `camellia192-cbc`, `camellia192-ctr`, `camellia256-cbc`, `camellia256-ctr`, `aes128-gcm`, `aes256-gcm`, and `chacha20-poly1305`.
+ - Added 2 new MACs: `aes128-gcm` and `aes256-gcm`.
+
 ### v2.1.1 (2019-11-26)
  - Added 2 new host key types: `rsa-sha2-256-cert-v01@openssh.com`, `rsa-sha2-512-cert-v01@openssh.com`.
  - Added 2 new ciphers: `des`, `3des`.
