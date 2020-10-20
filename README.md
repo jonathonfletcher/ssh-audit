@@ -7,6 +7,8 @@
 -->
 **ssh-audit** is a tool for ssh server & client configuration auditing.
 
+[jtesta/ssh-audit](https://github.com/jtesta/ssh-audit/) (v2.0+) is the updated and maintained version of ssh-audit forked from [arthepsy/ssh-audit](https://github.com/arthepsy/ssh-audit) (v1.x) due to inactivity.
+
 ## Features
 - SSH1 and SSH2 protocol server support;
 - analyze SSH client configuration;
@@ -17,45 +19,165 @@
 - output security information (related issues, assigned CVE list, etc);
 - analyze SSH version compatibility based on algorithm information;
 - historical information from OpenSSH, Dropbear SSH and libssh;
+- policy scans to ensure adherence to a hardened/standard configuration;
 - runs on Linux and Windows;
 - no dependencies
 
 ## Usage
 ```
-usage: ssh-audit.py [-1246pbcnjvlt] <host>
+usage: ssh-audit.py [options] <host>
 
+   -h,  --help             print this help
    -1,  --ssh1             force ssh version 1 only
    -2,  --ssh2             force ssh version 2 only
    -4,  --ipv4             enable IPv4 (order of precedence)
    -6,  --ipv6             enable IPv6 (order of precedence)
-   -p,  --port=<port>      port to connect
    -b,  --batch            batch output
    -c,  --client-audit     starts a server on port 2222 to audit client
                                software config (use -p to change port;
                                use -t to change timeout)
-   -n,  --no-colors        disable colors
    -j,  --json             JSON output
-   -v,  --verbose          verbose output
    -l,  --level=<level>    minimum output level (info|warn|fail)
+   -L,  --list-policies    list all the official, built-in policies
+        --lookup=<alg1,alg2,...>    looks up an algorithm(s) without
+                                    connecting to a server
+   -M,  --make-policy=<policy.txt>  creates a policy based on the target server
+                                    (i.e.: the target server has the ideal
+                                    configuration that other servers should
+                                    adhere to)
+   -n,  --no-colors        disable colors
+   -p,  --port=<port>      port to connect
+   -P,  --policy=<"policy name" | policy.txt>  run a policy test using the
+                                                   specified policy
    -t,  --timeout=<secs>   timeout (in seconds) for connection and reading
                                (default: 5)
+   -T,  --targets=<hosts.txt>  a file containing a list of target hosts (one
+                                   per line, format HOST[:PORT])
+   -v,  --verbose          verbose output
 ```
 * if both IPv4 and IPv6 are used, order of precedence can be set by using either `-46` or `-64`.  
 * batch flag `-b` will output sections without header and without empty lines (implies verbose flag).  
 * verbose flag `-v` will prefix each line with section type and algorithm name.  
+* an exit code of 0 is returned when all algorithms are considered secure (for a standard audit), or when a policy check passes (for a policy audit).
 
-### Server Audit Example
-Below is a screen shot of the server-auditing output when connecting to an unhardened OpenSSH v5.3 service:
+Basic server auditing:
+```
+ssh-audit localhost
+ssh-audit 127.0.0.1
+ssh-audit 127.0.0.1:222
+ssh-audit ::1
+ssh-audit [::1]:222
+```
+
+To run a standard audit against many servers (place targets into servers.txt, one on each line in the format of `HOST[:PORT]`):
+
+```
+ssh-audit -T servers.txt
+```
+
+To audit a client configuration (listens on port 2222 by default; connect using `ssh -p 2222 anything@localhost`):
+
+```
+ssh-audit -c
+```
+
+To audit a client configuration, with a listener on port 4567:
+```
+ssh-audit -c -p 4567
+```
+
+To  list all official built-in policies (hint: use resulting file paths with `-P`/`--policy`):
+```
+ssh-audit -L
+```
+
+To run a policy audit against a server:
+```
+ssh-audit -P ["policy name" | path/to/server_policy.txt] targetserver
+```
+
+To run a policy audit against a client:
+```
+ssh-audit -c -P ["policy name" | path/to/client_policy.txt]
+```
+
+To run a policy audit against many servers:
+```
+ssh-audit -T servers.txt -P ["policy name" | path/to/server_policy.txt]
+```
+
+To create a policy based on a target server (which can be manually edited; see official built-in policies for syntax examples):
+```
+ssh-audit -M new_policy.txt targetserver
+```
+
+### Server Standard Audit Example
+Below is a screen shot of the standard server-auditing output when connecting to an unhardened OpenSSH v5.3 service:
 ![screenshot](https://user-images.githubusercontent.com/2982011/64388792-317e6f80-d00e-11e9-826e-a4934769bb07.png)
 
-### Client Audit Example
+### Server Policy Audit Example
+Below is a screen shot of the policy auditing output when connecting to an un-hardened Ubuntu Server 20.04 machine:
+![screenshot](https://user-images.githubusercontent.com/2982011/94370881-95178700-00c0-11eb-8705-3157a4669dc0.png)
+
+After applying the steps in the hardening guide (see below), the output changes to the following:
+![screenshot](https://user-images.githubusercontent.com/2982011/94370873-87620180-00c0-11eb-9a59-469f61a56ce1.png)
+
+### Client Standard Audit Example
 Below is a screen shot of the client-auditing output when an unhardened OpenSSH v7.2 client connects:
 ![client_screenshot](https://user-images.githubusercontent.com/2982011/68867998-b946c100-06c4-11ea-975f-1f47e4178a74.png)
 
 ### Hardening Guides
 Guides to harden server & client configuration can be found here: [https://www.ssh-audit.com/hardening_guides.html](https://www.ssh-audit.com/hardening_guides.html)
 
+### Pre-Built Packages
+Pre-built packages are available for Windows (see the releases page), on PyPI, Snap, and Homebrew.
+
+To install from PyPI:
+```
+$ pip3 install ssh-audit
+```
+
+To install the Snap package:
+```
+$ snap install ssh-audit
+```
+
+To install on Homebrew:
+```
+$ brew install ssh-audit
+```
+
+To install from Dockerhub:
+```
+$ docker pull positronsecurity/ssh-audit
+```
+(Then run with: `docker run -it -p 2222:2222 positronsecurity/ssh-audit 10.1.1.1`)
+
+### Web Front-End
+For convenience, a web front-end on top of the command-line tool is available at [https://www.ssh-audit.com/](https://www.ssh-audit.com/).
+
 ## ChangeLog
+### v2.3.1-dev (???)
+ - Now parses public key sizes for `rsa-sha2-256-cert-v01@openssh.com` and `rsa-sha2-512-cert-v01@openssh.com` host key types.
+ - Built-in policies now include CA key requirements (if certificates are in use).
+ - Migrated pre-made policies from external files to internal database.
+ - Split single 3,500 line script into many files (by class).
+ - Added setup.py support; credit [Ganden Schaffner](https://github.com/gschaffner).
+ - Added 1 new cipher: `des-cbc@ssh.com`.
+
+### v2.3.0 (2020-09-27)
+ - Added new policy auditing functionality to test adherence to a hardening guide/standard configuration (see `-L`/`--list-policies`, `-M`/`--make-policy` and `-P`/`--policy`).  For an in-depth tutorial, see <https://www.positronsecurity.com/blog/2020-09-27-ssh-policy-configuration-checks-with-ssh-audit/>.
+ - Created new man page (see `ssh-audit.1` file).
+ - 1024-bit moduli upgraded from warnings to failures.
+ - Many Python 2 code clean-ups, testing framework improvements, pylint & flake8 fixes, and mypy type comments; credit [Jürgen Gmach](https://github.com/jugmac00).
+ - Added feature to look up algorithms in internal database (see `--lookup`); credit [Adam Russell](https://github.com/thecliguy).
+ - Suppress recommendation of token host key types.
+ - Added check for use-after-free vulnerability in PuTTY v0.73.
+ - Added 11 new host key types: `ssh-rsa1`, `ssh-dss-sha256@ssh.com`, `ssh-gost2001`, `ssh-gost2012-256`, `ssh-gost2012-512`, `spki-sign-rsa`, `ssh-ed448`, `x509v3-ecdsa-sha2-nistp256`, `x509v3-ecdsa-sha2-nistp384`, `x509v3-ecdsa-sha2-nistp521`, `x509v3-rsa2048-sha256`.
+ - Added 8 new key exchanges: `diffie-hellman-group1-sha256`, `kexAlgoCurve25519SHA256`, `Curve25519SHA256`, `gss-group14-sha256-`, `gss-group15-sha512-`, `gss-group16-sha512-`, `gss-nistp256-sha256-`, `gss-curve25519-sha256-`.
+ - Added 5 new ciphers: `blowfish`, `AEAD_AES_128_GCM`, `AEAD_AES_256_GCM`, `crypticore128@ssh.com`, `seed-cbc@ssh.com`.
+ - Added 3 new MACs: `chacha20-poly1305@openssh.com`, `hmac-sha3-224`, `crypticore-mac@ssh.com`.
+
 ### v2.2.0 (2020-03-11)
  - Marked host key type `ssh-rsa` as weak due to [practical SHA-1 collisions](https://eprint.iacr.org/2020/014.pdf).
  - Added Windows builds.

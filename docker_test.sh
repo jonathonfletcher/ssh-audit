@@ -18,15 +18,22 @@
 IMAGE_VERSION=3
 
 # This is the name of our docker image.
-IMAGE_NAME=ssh-audit-test
+IMAGE_NAME=positronsecurity/ssh-audit-test-framework
 
 
 # Terminal colors.
 CLR="\033[0m"
 RED="\033[0;31m"
+YELLOW="\033[0;33m"
 GREEN="\033[0;32m"
 REDB="\033[1;31m"   # Red + bold
 GREENB="\033[1;32m" # Green + bold
+
+# Program return values.
+PROGRAM_RETVAL_FAILURE=3
+PROGRAM_RETVAL_WARNING=2
+PROGRAM_RETVAL_CONNECTION_ERROR=1
+PROGRAM_RETVAL_GOOD=0
 
 
 # Returns 0 if current docker image exists.
@@ -237,7 +244,7 @@ function get_release_key {
 
     # The TinySSH release key isn't on any website, apparently.
     if [[ $project == 'TinySSH' ]]; then
-	gpg --recv-key $key_id
+	gpg --keyserver keys.gnupg.net --recv-key $key_id
     else
 	echo -e "\nGetting ${project} release key...\n"
 	wget -O key.asc $2
@@ -347,14 +354,27 @@ function get_source {
 }
 
 
+# Pulls the defined image from Dockerhub.
+function pull_docker_image {
+    docker pull $IMAGE_NAME:$IMAGE_VERSION
+    if [[ $? == 0 ]]; then
+        echo -e "${GREEN}Successfully downloaded image ${IMAGE_NAME}:${IMAGE_VERSION} from Dockerhub.${CLR}\n"
+    else
+        echo -e "${REDB}Failed to pull image ${IMAGE_NAME}:${IMAGE_VERSION} from Dockerhub!  Error code: $?${CLR}\n"
+        exit -1
+    fi
+}
+
+
 # Runs a Dropbear test.  Upon failure, a diff between the expected and actual results
 # is shown, then the script immediately terminates.
 function run_dropbear_test {
     dropbear_version=$1
     test_number=$2
     options=$3
+    expected_retval=$4
 
-    run_test 'Dropbear' $dropbear_version $test_number "$options"
+    run_test 'Dropbear' $dropbear_version $test_number "$options" $expected_retval
 }
 
 
@@ -363,8 +383,9 @@ function run_dropbear_test {
 function run_openssh_test {
     openssh_version=$1
     test_number=$2
+    expected_retval=$3
 
-    run_test 'OpenSSH' $openssh_version $test_number ''
+    run_test 'OpenSSH' $openssh_version $test_number '' $expected_retval
 }
 
 
@@ -373,8 +394,9 @@ function run_openssh_test {
 function run_tinyssh_test {
     tinyssh_version=$1
     test_number=$2
+    expected_retval=$3
 
-    run_test 'TinySSH' $tinyssh_version $test_number ''
+    run_test 'TinySSH' $tinyssh_version $test_number '' $expected_retval
 }
 
 
@@ -383,6 +405,7 @@ function run_test {
     version=$2
     test_number=$3
     options=$4
+    expected_retval=$5
 
     server_exec=
     test_result_stdout=
@@ -421,15 +444,17 @@ function run_test {
     fi
 
     ./ssh-audit.py localhost:2222 > $test_result_stdout
-    if [[ $? != 0 ]]; then
-	echo -e "${REDB}Failed to run ssh-audit.py! (exit code: $?)${CLR}"
+    actual_retval=$?
+    if [[ $actual_retval != $expected_retval ]]; then
+	echo -e "${REDB}Unexpected return value.  Expected: ${expected_retval}; Actual: ${actual_retval}${CLR}"
 	docker container stop -t 0 $cid > /dev/null
 	exit 1
     fi
 
     ./ssh-audit.py -j localhost:2222 > $test_result_json
-    if [[ $? != 0 ]]; then
-	echo -e "${REDB}Failed to run ssh-audit.py! (exit code: $?)${CLR}"
+    actual_retval=$?
+    if [[ $actual_retval != $expected_retval ]]; then
+	echo -e "${REDB}Unexpected return value.  Expected: ${expected_retval}; Actual: ${actual_retval}${CLR}"
 	docker container stop -t 0 $cid > /dev/null
 	exit 1
     fi
@@ -464,6 +489,111 @@ function run_test {
     echo -e "${test_name} ${GREEN}passed${CLR}."
 }
 
+function run_builtin_policy_test {
+    policy_name=$1         # The built-in policy name to use.
+    version=$2             # Version of OpenSSH to test with.
+    test_number=$3         # The test number to run.
+    server_options=$4      # The options to start the server with (i.e.: "-o option1,options2,...")
+    expected_exit_code=$5  # The expected exit code of ssh-audit.py.
+
+    server_exec="/openssh/sshd-${version} -D -f /etc/ssh/sshd_config-8.0p1_test1 ${server_options}"
+    test_result_stdout="${TEST_RESULT_DIR}/openssh_${version}_builtin_policy_${test_number}.txt"
+    test_result_json="${TEST_RESULT_DIR}/openssh_${version}_builtin_policy_${test_number}.json"
+    expected_result_stdout="test/docker/expected_results/openssh_${version}_builtin_policy_${test_number}.txt"
+    expected_result_json="test/docker/expected_results/openssh_${version}_builtin_policy_${test_number}.json"
+    test_name="OpenSSH ${version} built-in policy ${test_number}"
+
+    run_policy_test "${test_name}" "${server_exec}" "${policy_name}" "${test_result_stdout}" "${test_result_json}" "${expected_exit_code}"
+}
+
+
+function run_custom_policy_test {
+    config_number=$1  # The configuration number to use.
+    test_number=$2    # The policy test number to run.
+    expected_exit_code=$3  # The expected exit code of ssh-audit.py.
+
+    version=
+    config=
+    if [[ ${config_number} == 'config1' ]]; then
+        version='5.6p1'
+        config='sshd_config-5.6p1_test1'
+    elif [[ ${config_number} == 'config2' ]]; then
+        version='8.0p1'
+        config='sshd_config-8.0p1_test1'
+    elif [[ ${config_number} == 'config3' ]]; then
+        version='5.6p1'
+        config='sshd_config-5.6p1_test4'
+    fi
+
+    server_exec="/openssh/sshd-${version} -D -f /etc/ssh/${config}"
+    policy_path="test/docker/policies/policy_${test_number}.txt"
+    test_result_stdout="${TEST_RESULT_DIR}/openssh_${version}_custom_policy_${test_number}.txt"
+    test_result_json="${TEST_RESULT_DIR}/openssh_${version}_custom_policy_${test_number}.json"
+    expected_result_stdout="test/docker/expected_results/openssh_${version}_custom_policy_${test_number}.txt"
+    expected_result_json="test/docker/expected_results/openssh_${version}_custom_policy_${test_number}.json"
+    test_name="OpenSSH ${version} custom policy ${test_number}"
+
+    run_policy_test "${test_name}" "${server_exec}" "${policy_path}" "${test_result_stdout}" "${test_result_json}" "${expected_exit_code}"
+}
+
+
+function run_policy_test {
+    test_name=$1
+    server_exec=$2
+    policy_path=$3
+    test_result_stdout=$4
+    test_result_json=$5
+    expected_exit_code=$6
+
+
+    #echo "Running: docker run -d -p 2222:22 ${IMAGE_NAME}:${IMAGE_VERSION} ${server_exec}"
+    cid=`docker run -d -p 2222:22 ${IMAGE_NAME}:${IMAGE_VERSION} ${server_exec}`
+    if [[ $? != 0 ]]; then
+	echo -e "${REDB}Failed to run docker image! (exit code: $?)${CLR}"
+	exit 1
+    fi
+
+    #echo "Running: ./ssh-audit.py -P \"${policy_path}\" localhost:2222 > ${test_result_stdout}"
+    ./ssh-audit.py -P "${policy_path}" localhost:2222 > ${test_result_stdout}
+    actual_exit_code=$?
+    if [[ ${actual_exit_code} != ${expected_exit_code} ]]; then
+	echo -e "${test_name} ${REDB}FAILED${CLR} (expected exit code: ${expected_exit_code}; actual exit code: ${actual_exit_code}\n"
+        cat ${test_result_stdout}
+	docker container stop -t 0 $cid > /dev/null
+	exit 1
+    fi
+
+    #echo "Running: ./ssh-audit.py -P \"${policy_path}\" -j localhost:2222 > ${test_result_json}"
+    ./ssh-audit.py -P "${policy_path}" -j localhost:2222 > ${test_result_json}
+    actual_exit_code=$?
+    if [[ ${actual_exit_code} != ${expected_exit_code} ]]; then
+	echo -e "${test_name} ${REDB}FAILED${CLR} (expected exit code: ${expected_exit_code}; actual exit code: ${actual_exit_code}\n"
+        cat ${test_result_json}
+	docker container stop -t 0 $cid > /dev/null
+	exit 1
+    fi
+
+    docker container stop -t 0 $cid > /dev/null
+    if [[ $? != 0 ]]; then
+       echo -e "${REDB}Failed to stop docker container ${cid}! (exit code: $?)${CLR}"
+       exit 1
+    fi
+
+    diff=`diff -u ${expected_result_stdout} ${test_result_stdout}`
+    if [[ $? != 0 ]]; then
+	echo -e "${test_name} ${REDB}FAILED${CLR}.\n\n${diff}\n"
+	exit 1
+    fi
+
+    diff=`diff -u ${expected_result_json} ${test_result_json}`
+    if [[ $? != 0 ]]; then
+	echo -e "${test_name} ${REDB}FAILED${CLR}.\n\n${diff}\n"
+	exit 1
+    fi
+
+    echo -e "${test_name} ${GREEN}passed${CLR}."
+}
+
 
 # First check if docker is functional.
 docker version > /dev/null
@@ -472,36 +602,98 @@ if [[ $? != 0 ]]; then
     exit 1
 fi
 
-# Check if the docker image is the most up-to-date version.  If not, create it.
+
+# Check if the docker image is the most up-to-date version.
+docker_image_exists=0
 check_if_docker_image_exists
 if [[ $? == 0 ]]; then
-    echo -e "\n${GREEN}Docker image $IMAGE_NAME:$IMAGE_VERSION already exists.${CLR}"
-else
-    echo -e "\nCreating docker image $IMAGE_NAME:$IMAGE_VERSION..."
-    create_docker_image
-    echo -e "\n${GREEN}Done creating docker image!${CLR}"
+    docker_image_exists=1
 fi
+
+
+# Check if the user specified --create to build a new image.
+if [[ ($# == 1) && ($1 == "--create") ]]; then
+    # Ensure that the image name doesn't already exist before building.
+    if [[ $docker_image_exists == 1 ]]; then
+        echo -e "${REDB}Error: --create specified, but $IMAGE_NAME:$IMAGE_VERSION already exists!${CLR}"
+        exit 1
+    else
+        echo -e "\nCreating docker image $IMAGE_NAME:$IMAGE_VERSION..."
+        create_docker_image
+        echo -e "\n${GREEN}Done creating docker image!${CLR}"
+        exit 0
+    fi
+fi
+
+
+# If we weren't explicitly told to create a new image, and it doesn't exist, then pull it from Dockerhub.
+if [[ $docker_image_exists == 0 ]]; then
+    echo -e "\nPulling docker image $IMAGE_NAME:$IMAGE_VERSION..."
+    pull_docker_image
+fi
+
+
+echo -e "\n${GREEN}Starting tests...${CLR}"
 
 # Create a temporary directory to write test results to.
 TEST_RESULT_DIR=`mktemp -d /tmp/ssh-audit_test-results_XXXXXXXXXX`
 
 # Now run all the tests.
 echo -e "\nRunning tests..."
-run_openssh_test '4.0p1' 'test1'
+run_openssh_test '4.0p1' 'test1' $PROGRAM_RETVAL_FAILURE
 echo
-run_openssh_test '5.6p1' 'test1'
-run_openssh_test '5.6p1' 'test2'
-run_openssh_test '5.6p1' 'test3'
-run_openssh_test '5.6p1' 'test4'
-run_openssh_test '5.6p1' 'test5'
+run_openssh_test '5.6p1' 'test1' $PROGRAM_RETVAL_FAILURE
+run_openssh_test '5.6p1' 'test2' $PROGRAM_RETVAL_FAILURE
+run_openssh_test '5.6p1' 'test3' $PROGRAM_RETVAL_FAILURE
+run_openssh_test '5.6p1' 'test4' $PROGRAM_RETVAL_FAILURE
+run_openssh_test '5.6p1' 'test5' $PROGRAM_RETVAL_FAILURE
 echo
-run_openssh_test '8.0p1' 'test1'
-run_openssh_test '8.0p1' 'test2'
-run_openssh_test '8.0p1' 'test3'
+run_openssh_test '8.0p1' 'test1' $PROGRAM_RETVAL_FAILURE
+run_openssh_test '8.0p1' 'test2' $PROGRAM_RETVAL_FAILURE
+run_openssh_test '8.0p1' 'test3' $PROGRAM_RETVAL_GOOD
 echo
-run_dropbear_test '2019.78' 'test1' '-r /etc/dropbear/dropbear_rsa_host_key_1024 -r /etc/dropbear/dropbear_dss_host_key -r /etc/dropbear/dropbear_ecdsa_host_key'
+run_dropbear_test '2019.78' 'test1' '-r /etc/dropbear/dropbear_rsa_host_key_1024 -r /etc/dropbear/dropbear_dss_host_key -r /etc/dropbear/dropbear_ecdsa_host_key' 3
 echo
-run_tinyssh_test '20190101' 'test1'
+run_tinyssh_test '20190101' 'test1' $PROGRAM_RETVAL_WARNING
+echo
+echo
+run_custom_policy_test 'config1' 'test1' $PROGRAM_RETVAL_GOOD
+run_custom_policy_test 'config1' 'test2' $PROGRAM_RETVAL_FAILURE
+run_custom_policy_test 'config1' 'test3' $PROGRAM_RETVAL_FAILURE
+run_custom_policy_test 'config1' 'test4' $PROGRAM_RETVAL_FAILURE
+run_custom_policy_test 'config1' 'test5' $PROGRAM_RETVAL_FAILURE
+run_custom_policy_test 'config2' 'test6' $PROGRAM_RETVAL_GOOD
+
+# Passing test with host key certificate and CA key certificates.
+run_custom_policy_test 'config3' 'test7' $PROGRAM_RETVAL_GOOD
+
+# Failing test with host key certificate and non-compliant CA key length.
+run_custom_policy_test 'config3' 'test8' $PROGRAM_RETVAL_FAILURE
+
+# Failing test with non-compliant host key certificate and CA key certificate.
+run_custom_policy_test 'config3' 'test9' $PROGRAM_RETVAL_FAILURE
+
+# Failing test with non-compliant host key certificate and non-compliant CA key certificate.
+run_custom_policy_test 'config3' 'test10' $PROGRAM_RETVAL_FAILURE
+
+# Passing test with host key size check.
+run_custom_policy_test 'config2' 'test11' $PROGRAM_RETVAL_GOOD
+
+# Failing test with non-compliant host key size check.
+run_custom_policy_test 'config2' 'test12' $PROGRAM_RETVAL_FAILURE
+
+# Passing test with DH modulus test.
+run_custom_policy_test 'config2' 'test13' $PROGRAM_RETVAL_GOOD
+
+# Failing test with DH modulus test.
+run_custom_policy_test 'config2' 'test14' $PROGRAM_RETVAL_FAILURE
+
+# Passing test for built-in OpenSSH 8.0p1 server policy.
+run_builtin_policy_test "Hardened OpenSSH Server v8.0 (version 1)" "8.0p1" "test1" "-o HostKeyAlgorithms=ssh-ed25519 -o KexAlgorithms=curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256 -o Ciphers=chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr -o MACs=hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com" $PROGRAM_RETVAL_GOOD
+
+# Failing test for built-in OpenSSH 8.0p1 server policy (MACs not hardened).
+run_builtin_policy_test "Hardened OpenSSH Server v8.0 (version 1)" "8.0p1" "test2" "-o HostKeyAlgorithms=ssh-ed25519 -o KexAlgorithms=curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512,diffie-hellman-group-exchange-sha256 -o Ciphers=chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr" $PROGRAM_RETVAL_FAILURE
+
 
 # The test functions above will terminate the script on failure, so if we reached here,
 # all tests are successful.

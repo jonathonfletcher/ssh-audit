@@ -1,13 +1,24 @@
 *~
-*.pyc
+*.py[cod]
 *.exe
 *.asc
 venv*/
 .cache/
+.mypy_cache/
 .tox
 .coverage*
 reports/
 .scannerwork/
-pypi/sshaudit/LICENSE
-pypi/sshaudit/README.md
-pypi/sshaudit/sshaudit.py
+
+# PyPI packaging
+/build/
+/dist/
+*.egg-info/
+*.egg
+
+# Snap packaging
+/parts/
+/prime/
+/snap/
+/stage/
+/ssh-audit_*.snap

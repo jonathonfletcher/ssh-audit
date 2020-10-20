@@ -1,0 +1,52 @@
+= PyPI =
+
+To create package and upload to test server:
+
+$ sudo apt install python3-virtualenv
+$ make -f Makefile.pypi
+$ make -f Makefile.pypi uploadtest
+
+
+To download from test server and verify:
+
+$ virtualenv -p /usr/bin/python3 /tmp/pypi_test
+$ cd /tmp/pypi_test; source bin/activate
+$ pip3 install --index-url https://test.pypi.org/simple ssh-audit
+
+
+To upload to production server (hint: use username '__token__' and API token):
+
+$ make -f Makefile.pypi uploadprod
+
+
+To download from production server and verify:
+
+$ virtualenv -p /usr/bin/python3 /tmp/pypi_prod
+$ cd /tmp/pypi_prod; source bin/activate
+$ pip3 install ssh-audit
+
+----
+
+= Snap =
+
+To create the snap package, run a fully-updated Ubuntu Server 20.04 VM.
+
+As root, run (leave all options default):
+
+# lxd init
+
+Bump the version number in snapcraft.yaml.  Then run:
+
+# make -f Makefile.snap
+
+----
+
+= Docker =
+
+Build image with:
+
+$ make -f Makefile.docker
+
+Then upload them to Dockerhub with:
+
+$ make -f Makefile.docker upload
